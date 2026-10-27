@@ -156,7 +156,7 @@ def cluster_poses(poses, radius=3.5, min_cluster=8):
     return [c[2] for c in clusters if c[1] >= min_cluster]
 
 
-def detect(cluster_rmsd=3.5, min_cluster=8, max_pockets=3):
+def detect(cluster_rmsd=3.5, min_cluster=8, max_pockets=3, pocket_by="size"):
     sys.path.insert(0, os.path.join(ROOT, "dockfp"))
     from common import read_pdb, reconstruct
     best = _load_best(1)
@@ -189,7 +189,11 @@ def detect(cluster_rmsd=3.5, min_cluster=8, max_pockets=3):
                     continue
                 poses.append((l, reconstruct(local[l], f), s))
             cls = cluster_poses(poses, radius=cluster_rmsd, min_cluster=min_cluster)
-            cls.sort(key=lambda c: (-len(c), np.mean([s for _, _, s in c])))
+            if pocket_by == "score":
+                # druggable-first: deepest (best-mean-score) cluster, then size
+                cls.sort(key=lambda c: (np.mean([s for _, _, s in c]), -len(c)))
+            else:
+                cls.sort(key=lambda c: (-len(c), np.mean([s for _, _, s in c])))
             if not cls:
                 lines.append("0 0 0 10 10 10")
                 continue
@@ -286,6 +290,7 @@ def main():
     p.add_argument("--min_cluster", type=int, default=8)
     p.add_argument("--dir", default=None)
     p.add_argument("--lib", default=None)
+    p.add_argument("--pocket_by", choices=["size", "score"], default="size")
     p = sub.add_parser("finger")
     p.add_argument("--dir", default=None)
     p.add_argument("--lib", default=None)
@@ -305,7 +310,7 @@ def main():
             globals()["LIB"] = os.path.abspath(args.lib)
             globals()["LIB_MOLS"] = sorted(f[:-4] for f in
                                             os.listdir(LIB) if f.endswith(".pdb"))
-        detect(args.cluster_rmsd, args.min_cluster)
+        detect(args.cluster_rmsd, args.min_cluster, pocket_by=args.pocket_by)
     elif args.cmd == "finger":
         if args.dir:
             globals()["OUT"] = os.path.abspath(args.dir)
