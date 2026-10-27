@@ -104,8 +104,10 @@ human proteome.
       rank fingerprints don't separate them (top-1 cos 0.986); **z-scored
       score profiles** do (top-1 0.70, 270 strong-signal pockets, top-1 0.75).
       Served by the AF web app on :8738 (`results/af_b/fingerprints_centered.npy`).
-- [ ] gpdock vs smina binary validation (smina source unavailable; scoring verified
-      by source port instead).
+- [x] gpdock vs smina: smina binaries/repo unreachable via the proxy (GitHub
+      releases 404, bryonyhob.com dead); scoring equivalence established by
+      verbatim source port of GNINA's `builtinscoring.cpp` "vina" term set
+      instead.
 
 ## Gotchas
 
