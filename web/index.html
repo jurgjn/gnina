@@ -1,0 +1,178 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>in-vina-veritas · pocket browser</title>
+<script src="/3Dmol.min.js"></script>
+<style>
+  :root { --bg:#10141a; --panel:#171c24; --edge:#2a3342; --tx:#d7dee8; --dim:#8494ab; --ac:#5aa7ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:13px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;
+         background:var(--bg); color:var(--tx); }
+  header { padding:10px 16px; border-bottom:1px solid var(--edge); display:flex;
+           gap:16px; align-items:baseline; }
+  header h1 { font-size:15px; margin:0; }
+  header .sub { color:var(--dim); font-size:12px; }
+  #layout { display:grid; grid-template-columns:230px 1fr 300px; gap:0;
+            height:calc(100vh - 45px); }
+  .col { overflow-y:auto; border-right:1px solid var(--edge); }
+  .col:last-child { border-right:none; }
+  .col header { position:sticky; top:0; background:var(--panel); z-index:2; }
+  .item { padding:7px 12px; border-bottom:1px solid #1d2430; cursor:pointer; }
+  .item:hover { background:#1d2430; }
+  .item.sel { background:#20304a; color:#fff; }
+  .item .n { color:var(--dim); font-size:11px; }
+  input[type=search] { width:calc(100% - 20px); margin:8px 10px; padding:6px 8px;
+    background:#0d1117; border:1px solid var(--edge); color:var(--tx); border-radius:6px; }
+  #stage { position:relative; }
+  #viewer { position:absolute; inset:0; }
+  #simlist .item { padding:6px 12px; }
+  #simlist .bar { height:4px; background:#0d1117; border-radius:2px; margin-top:3px; }
+  #simlist .bar i { display:block; height:100%; background:var(--ac); border-radius:2px; }
+  .btns { display:flex; gap:6px; padding:8px 12px; flex-wrap:wrap; }
+  .btns button { background:#20304a; border:1px solid var(--edge); color:var(--tx);
+    padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
+  .btns button.on { background:var(--ac); color:#04101f; border-color:var(--ac); }
+  h3 { font-size:12px; text-transform:uppercase; letter-spacing:.06em;
+       color:var(--dim); margin:14px 12px 4px; }
+  .probebars { padding:4px 12px; }
+  .probebars .row { display:flex; align-items:center; gap:6px; margin:2px 0; }
+  .probebars .nm { width:90px; font-size:11px; color:var(--dim); overflow:hidden; }
+  .probebars .tr { flex:1; height:8px; background:#0d1117; border-radius:3px; }
+  .probebars .tr i { display:block; height:100%; border-radius:3px; }
+  .probebars .v { width:44px; text-align:right; font-size:11px; color:var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>in-vina-veritas · pocket browser</h1>
+  <span class="sub" id="status">loading…</span>
+</header>
+<div id="layout">
+  <div class="col">
+    <input type="search" id="q" placeholder="filter pockets…">
+    <div id="pocklist"></div>
+  </div>
+  <div class="col" id="stage">
+    <div id="viewer"></div>
+    <div class="btns">
+      <button id="bprot" class="on">protein</button>
+      <button id="bprobes" class="on">probes</button>
+      <button id="bsurf" class="on">surfaces</button>
+    </div>
+  </div>
+  <div class="col">
+    <h3>similar pockets (cosine of fingerprint)</h3>
+    <div id="simlist"></div>
+    <h3>pocket space (MDS of cosine distance)</h3>
+    <canvas id="scatter" width="270" height="270" style="width:100%;background:#0d1117;border-radius:6px"></canvas>
+    <h3>top probes in selected pocket</h3>
+    <div class="probebars" id="probebars"></div>
+  </div>
+</div>
+<script>
+let POCKETS=[], RECS=[], PROJ=null, SEL=null, SIM=[];
+const viewerEl = document.getElementById('viewer');
+const v = $3Dmol.createViewer(viewerEl, {backgroundColor:'#10141a'});
+function fit(){ v.resize(); }
+window.addEventListener('resize', fit);
+
+async function j(u){ return (await fetch(u)).json(); }
+async function t(u){ return (await fetch(u)).text(); }
+
+function pocketIdx(id){ return POCKETS.indexOf(id); }
+
+function renderList(){
+  const q = document.getElementById('q').value.toLowerCase();
+  const el = document.getElementById('pocklist');
+  el.innerHTML='';
+  POCKETS.forEach((p,i)=>{
+    if(q && !p.toLowerCase().includes(q)) return;
+    const d=document.createElement('div');
+    d.className='item'+(i===SEL?' sel':'');
+    d.innerHTML=`<b>${p}</b>`;
+    d.onclick=()=>select(i);
+    el.appendChild(d);
+  });
+}
+document.getElementById('q').oninput=renderList;
+
+function drawScatter(){
+  const cv = document.getElementById('scatter');
+  const g = cv.getContext('2d');
+  g.clearRect(0,0,cv.width,cv.height);
+  if(!PROJ) return;
+  const xs = PROJ.map(p=>p[0]), ys = PROJ.map(p=>p[1]);
+  const xmin=Math.min(...xs), xmax=Math.max(...xs), ymin=Math.min(...ys), ymax=Math.max(...ys);
+  const W=cv.width-24, Hh=cv.height-24;
+  const X = i => 12 + (xs[i]-xmin)/((xmax-xmin)||1)*W;
+  const Y = i => 12 + (1-(ys[i]-ymin)/((ymax-ymin)||1))*Hh;
+  POCKETS.forEach((p,i)=>{
+    g.fillStyle = i===SEL ? '#5aa7ff' : '#4a5a72';
+    g.beginPath(); g.arc(X(i),Y(i), i===SEL?5:3, 0, 7); g.fill();
+    if(i===SEL || POCKETS.length<40){
+      g.fillStyle='#8494ab'; g.font='9px sans-serif'; g.fillText(p, X(i)+5, Y(i)+3);
+    }
+  });
+}
+
+function select(i){
+  SEL=i; renderList(); drawScatter(); loadPocket(i);
+}
+
+async function loadPocket(i){
+  const p = POCKETS[i];
+  v.clear();
+  const rec = RECS[i];
+  if(rec){
+    const pdb = await t('/pdb?path='+encodeURIComponent(rec));
+    v.addModel(pdb, 'pdb');
+    v.addStyle({},{cartoon:{colorStyle:'chain'}});
+    if(document.getElementById('bsurf').classList.contains('on'))
+      v.addStyle({},{representation:'surface', opacity:0.35, colorStyle:'chain'});
+  }
+  const poses = await t('/api/poses/'+i+'?top=8');
+  v.addModel(poses, 'pdb');
+  v.addStyle({},{sphere:{scale:0.28, colorStyle:'element'}});
+  v.zoomTo(); fit();
+  const sim = await j('/api/similar/'+i+'?k=20'); SIM=sim;
+  const sl = document.getElementById('simlist'); sl.innerHTML='';
+  sim.forEach(([j_,s])=>{
+    const d=document.createElement('div'); d.className='item';
+    d.innerHTML=`<b>${POCKETS[j_]}</b> <span class="n">${s.toFixed(3)}</span>
+      <span class="bar"><i style="width:${Math.max(0,(s*100)).toFixed(1)}%"></i></span>`;
+    d.onclick=()=>select(j_);
+    sl.appendChild(d);
+  });
+  const tp = await j('/api/topprobes/'+i+'?top=10');
+  const bars = document.getElementById('probebars'); bars.innerHTML='';
+  const smin = Math.min(...tp.map(t=>t[1])), smax = Math.max(...tp.map(t=>t[1]));
+  tp.forEach(([m,s])=>{
+    const frac = (s-smin)/((smax-smin)||1);
+    const row=document.createElement('div'); row.className='row';
+    row.innerHTML = `<span class="nm">${m}</span><span class="tr"><i style="width:${(8+frac*92).toFixed(0)}%;background:hsl(${(1-frac)*220},70%,55%)"></i></span><span class="v">${s.toFixed(2)}</span>`;
+    bars.appendChild(row);
+  });
+  document.getElementById('status').textContent =
+    `pocket ${p} · ${sim.length} similar shown`;
+}
+
+document.getElementById('bprot').onclick=function(){ this.classList.toggle('on'); };
+document.getElementById('bprobes').onclick=function(){ this.classList.toggle('on'); };
+document.getElementById('bsurf').onclick=function(){
+  this.classList.toggle('on');
+};
+
+(async function init(){
+  const pk = await j('/api/pockets');
+  POCKETS=pk.pockets; RECS=pk.recs||[];
+  const pr = await j('/api/proj'); PROJ=pr.proj;
+  document.getElementById('status').textContent =
+    `${POCKETS.length} pockets · ${RECS.length} structures`;
+  renderList(); drawScatter();
+  if(POCKETS.length) select(0);
+  setTimeout(fit, 100);
+})();
+</script>
+</body>
+</html>
