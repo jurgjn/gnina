@@ -82,8 +82,12 @@ human proteome.
 - [x] Probe library v0 (1000) → **128 selected** by iteration (maximize pocket
       distinguishability, centered-rank cosine). `results/fp/` (selected.json,
       fingerprints). Sanity: ABL1→mTOR, DEF↔SAHH (PLP enzymes), ADA17↔TRYB1 (hydrolases).
-- [x] Web app: running on **port 8737** (pocket list, 3Dmol viewer protein+probes,
-      similarity table, MDS/PCA scatter, top-probe scores). Server: `web/app.py`.
+- [x] Web app: **port 8737** (92 benchmark pockets, centered-rank fp) and
+      **port 8738** (20,550 AF pockets, score-profile fp, `results/af_b`).
+      Pocket list, 3Dmol viewer protein+probes, similarity table, PCA/MDS
+      scatter, top-probe scores. Server: `web/app.py`.
+      Restart: `python3 web/app.py --root . --fp <fp_dir> --port <p>` (for the
+      92-set add `--recs results/fp_recs.txt`).
 - [x] AFDB human v6: **20,550 monomers extracted** (`data/afdb/recs/`), probe
       library **128** (`data/lib/v128/`).
 - [x] **AF p1 DONE**: 128 probes × 20,550 monomers, whole-protein, 1000×8 (~30 min
@@ -92,11 +96,14 @@ human proteome.
       `results/af/SUMMARY.md` (only ~2% of monomers show a drug-like binding
       signal with the v1 library; v1 fingerprints of generic grooves are all
       nearly identical, top-1 cos 0.986).
-- [ ] AF v128b library re-run (running, `results/af_b/`): probe set re-optimized
-      on AF samples (nearest-cos 0.99→0.25 on 300 proteins); expect structured
-      similarity space after p2+finger.
-- [ ] Benchmark v2: probe-based phase-1 pocket detection (`dockfp/bench_cd_v2.py`)
-      — expected to lift Top1 (5.8% v1) toward the GNINA-1.0 whole-protein numbers.
+- [x] **Benchmark v2** (probe-based phase 1): Top1 **10.3%** (v1 5.8%),
+      Top9 **13.6%** (v1 7.7%), pocket recall@5Å **43.3%** (v1 22.9%),
+      best-aligned 84.3%. Probe library localizes pockets ~1.9× better than
+      the pocket's own ligands. `results/cd2/SUMMARY.md`.
+- [x] **AF score-profile fingerprints**: AF top pockets are generic grooves —
+      rank fingerprints don't separate them (top-1 cos 0.986); **z-scored
+      score profiles** do (top-1 0.70, 270 strong-signal pockets, top-1 0.75).
+      Served by the AF web app on :8738 (`results/af_b/fingerprints_centered.npy`).
 - [ ] gpdock vs smina binary validation (smina source unavailable; scoring verified
       by source port instead).
 

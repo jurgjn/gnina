@@ -208,7 +208,7 @@ def main():
                 als = [aligned_rmsd(reconstruct(local_l, row), known[l])
                        for row in chosen]
                 pdist = (np.linalg.norm(rec_pocket_cen[r] - rec_known_cen[r])
-                         if r in rec_known_cen else np.nan)
+                         if r in rec_known_cen and r in rec_pocket_cen else np.nan)
                 with open(os.path.join(args.out, "eval.tsv"), "a") as ef:
                     ef.write(f"{pocket}\t{r}\t{l}\t{len(chosen)}\t"
                              f"{raws[0]:.3f}\t{min(raws):.3f}\t{min(als):.3f}\t"
