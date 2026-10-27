@@ -88,8 +88,13 @@ human proteome.
       library **128** (`data/lib/v128/`).
 - [x] **AF p1 DONE**: 128 probes × 20,550 monomers, whole-protein, 1000×8 (~30 min
       on 2 GPUs) → `results/af/p1/`.
-- [ ] AF: detect (running) → p2 redock (2000×16, ~30 min 2-GPU) → fingerprints →
-      web app on AF data (~20k pockets).
+- [x] AF v1 results: **22,504 pockets / 20,355 fingerprints**; findings in
+      `results/af/SUMMARY.md` (only ~2% of monomers show a drug-like binding
+      signal with the v1 library; v1 fingerprints of generic grooves are all
+      nearly identical, top-1 cos 0.986).
+- [ ] AF v128b library re-run (running, `results/af_b/`): probe set re-optimized
+      on AF samples (nearest-cos 0.99→0.25 on 300 proteins); expect structured
+      similarity space after p2+finger.
 - [ ] Benchmark v2: probe-based phase-1 pocket detection (`dockfp/bench_cd_v2.py`)
       — expected to lift Top1 (5.8% v1) toward the GNINA-1.0 whole-protein numbers.
 - [ ] gpdock vs smina binary validation (smina source unavailable; scoring verified

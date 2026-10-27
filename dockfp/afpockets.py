@@ -284,7 +284,11 @@ def main():
     p = sub.add_parser("detect")
     p.add_argument("--cluster_rmsd", type=float, default=3.5)
     p.add_argument("--min_cluster", type=int, default=8)
-    sub.add_parser("finger")
+    p.add_argument("--dir", default=None)
+    p.add_argument("--lib", default=None)
+    p = sub.add_parser("finger")
+    p.add_argument("--dir", default=None)
+    p.add_argument("--lib", default=None)
     sub.add_parser("meta")
     args = ap.parse_args()
 
@@ -295,8 +299,20 @@ def main():
     elif args.cmd == "dock":
         dock(args.gpu, args.batch, args.steps, args.runs, args.phase)
     elif args.cmd == "detect":
+        if args.dir:
+            globals()["OUT"] = os.path.abspath(args.dir)
+        if args.lib:
+            globals()["LIB"] = os.path.abspath(args.lib)
+            globals()["LIB_MOLS"] = sorted(f[:-4] for f in
+                                            os.listdir(LIB) if f.endswith(".pdb"))
         detect(args.cluster_rmsd, args.min_cluster)
     elif args.cmd == "finger":
+        if args.dir:
+            globals()["OUT"] = os.path.abspath(args.dir)
+        if args.lib:
+            globals()["LIB"] = os.path.abspath(args.lib)
+            globals()["LIB_MOLS"] = sorted(f[:-4] for f in
+                                            os.listdir(LIB) if f.endswith(".pdb"))
         finger()
     elif args.cmd == "meta":
         meta()

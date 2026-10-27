@@ -73,6 +73,42 @@ class App:
             d = os.path.join(fp_dir, "probe_dock", "results.tsv")
             if os.path.exists(d):
                 self.pose_tsv = d
+            else:
+                # AF layout: p2/<batch>_out/results.tsv, one box per receptor
+                self.pose_tsv = None
+                p2 = os.path.join(fp_dir, "p2")
+                if os.path.exists(p2):
+                    self.pose_tsv_by_rec = {}
+                    for bf in sorted(os.listdir(p2)):
+                        if not bf.endswith("_out"):
+                            continue
+                        tf = os.path.join(p2, bf, "results.tsv")
+                        if not os.path.exists(tf):
+                            continue
+                        recs_fn = os.path.join(fp_dir, "batches",
+                                               bf[:-4] + ".txt")
+                        if not os.path.exists(recs_fn):
+                            continue
+                        for i, ln in enumerate(open(recs_fn)):
+                            ln = ln.strip()
+                            if ln:
+                                self.pose_tsv_by_rec[(bf, i)] = tf
+        self.pose_tsv_by_rec = getattr(self, "pose_tsv_by_rec", {})
+        # pocket index -> (results.tsv, box) for the AF p2 layout
+        self.pose_index = {}
+        if self.pose_tsv_by_rec and self.rec_paths:
+            rec_to_tf = {}
+            for (bf, bi), tf in self.pose_tsv_by_rec.items():
+                recs_fn = os.path.join(fp_dir, "batches", bf[:-4] + ".txt")
+                if not os.path.exists(recs_fn):
+                    continue
+                for i, ln in enumerate(open(recs_fn)):
+                    ln = ln.strip()
+                    if ln:
+                        rec_to_tf[ln] = (tf, i)
+            for i, rec in enumerate(self.rec_paths):
+                if rec in rec_to_tf:
+                    self.pose_index[i] = rec_to_tf[rec]
 
     def similar(self, i, k=20):
         F = self.FP / (np.linalg.norm(self.FP, axis=1, keepdims=True) + 1e-9)
@@ -87,12 +123,15 @@ class App:
         coords, using best run pose from the probe docking results)."""
         from collections import defaultdict
         import math
+        tf, box = self._pose_file(i)
+        if tf is None:
+            return ""
         rows = defaultdict(list)
-        for ln in open(self.pose_tsv):
+        for ln in open(tf):
             if ln.startswith("box\t"):
                 continue
             f = ln.rstrip("\n").split("\t")
-            if int(f[0]) != i:
+            if int(f[0]) != box:
                 continue
             rows[f[1]].append((float(f[3]), f))
         # best run per molecule
@@ -126,15 +165,23 @@ class App:
             out.append("TER\n")
         return "".join(out)
 
+    def _pose_file(self, i):
+        """(results.tsv path, box_index) for pocket i, or (None, 0)."""
+        if self.pose_tsv:
+            return self.pose_tsv, i
+        return self.pose_index.get(i, (None, 0))
+
     def top_probes(self, i, top=10):
         """[(mol, best_score)] for pocket i, sorted."""
-        from collections import defaultdict
+        tf, box = self._pose_file(i)
+        if tf is None:
+            return []
         best = {}
-        for ln in open(self.pose_tsv):
+        for ln in open(tf):
             if ln.startswith("box\t"):
                 continue
             f = ln.rstrip("\n").split("\t")
-            if int(f[0]) != i:
+            if int(f[0]) != box:
                 continue
             s = float(f[3])
             if f[1] not in best or s < best[f[1]]:
@@ -197,8 +244,11 @@ def make_handler(app):
                         q.get("top", ["10"])[0]))))
                 elif p == "/pdb":
                     rel = q.get("path", [""])[0]
-                    fp_ = posixpath.normpath(rel).lstrip("/")
-                    full = os.path.normpath(os.path.join(app.root, fp_))
+                    if os.path.isabs(rel):
+                        full = os.path.normpath(rel)
+                    else:
+                        fp_ = posixpath.normpath(rel).lstrip("/")
+                        full = os.path.normpath(os.path.join(app.root, fp_))
                     if not full.startswith(app.root) or not os.path.exists(full):
                         self._send(404, "not found")
                     else:
