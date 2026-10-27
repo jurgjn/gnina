@@ -61,7 +61,7 @@ def extract():
     for k, m in enumerate(members, 1):
         out = os.path.join(RECS, m.name[:-7] + ".pdb")
         with t.extractfile(m) as src, open(out, "wb") as dst:
-            dst.write(src.read())
+            dst.write(gzip.decompress(src.read()))
         if k % 1000 == 0:
             print(f"  extracted {k}/{len(members)}", file=sys.stderr)
     print("done", file=sys.stderr)
@@ -129,9 +129,11 @@ def _load_best(phase):
             f = ln.rstrip("\n").split("\t")
             b, l = int(f[0]), f[1]
             s = float(f[3])
+            row = {"c": np.array([float(f[4]), float(f[5]), float(f[6])]),
+                   "q": np.array([float(f[7]), float(f[8]), float(f[9]), float(f[10])])}
             cur = data[(bf, b)].get(l)
             if cur is None or s < cur[0]:
-                data[(bf, b)][l] = (s, f)
+                data[(bf, b)][l] = (s, row)
     return data
 
 
@@ -171,10 +173,11 @@ def detect(cluster_rmsd=3.5, min_cluster=8, max_pockets=3):
     os.makedirs(outdir, exist_ok=True)
     os.makedirs(os.path.join(OUT, "p2"), exist_ok=True)
     n_pock = 0
-    for bf in recfiles:
-        recs = [l.strip() for l in open(os.path.join(OUT, "batches", bf)) if l.strip()]
-        lines = []
-        pf = os.path.join(outdir, bf[:-4] + ".json")
+    for bff in recfiles:
+        bf = bff[:-4]  # key used in p* result dirs (no .txt)
+        recs = [l.strip() for l in open(os.path.join(OUT, "batches", bff)) if l.strip()]
+        lines = []  # one box per receptor (top pocket) for phase 2
+        pf = os.path.join(outdir, bf + ".json")
         pockets = []
         for ri, rec in enumerate(recs):
             if (bf, ri) not in best:
@@ -195,8 +198,9 @@ def detect(cluster_rmsd=3.5, min_cluster=8, max_pockets=3):
                 cen = cents.mean(0)
                 ext = np.array([c.max(0) - c.min(0) for _, c, _ in cl]).mean(0)
                 size = np.clip(ext + 7.0, 8.0, 22.0)
-                lines.append(f"{cen[0]:.3f} {cen[1]:.3f} {cen[2]:.3f} "
-                             f"{size[0]:.3f} {size[1]:.3f} {size[2]:.3f}")
+                if ci == 0:
+                    lines.append(f"{cen[0]:.3f} {cen[1]:.3f} {cen[2]:.3f} "
+                                 f"{size[0]:.3f} {size[1]:.3f} {size[2]:.3f}")
                 pid = os.path.basename(rec)[:-4]
                 pockets.append({"id": f"{pid}#p{ci}", "rec": rec,
                                 "box": [cen.tolist(), size.tolist()],
@@ -204,10 +208,8 @@ def detect(cluster_rmsd=3.5, min_cluster=8, max_pockets=3):
             n_pock += len(cls[:max_pockets])
         with open(pf, "w") as f:
             json.dump(pockets, f)
-        # boxes file: one line per receptor (its top pocket) for phase 2
-        nbx = len(recs)
-        with open(os.path.join(OUT, "p2", bf[:-4] + "_boxes.txt"), "w") as f:
-            f.write("\n".join(lines[:nbx]) + "\n")
+        with open(os.path.join(OUT, "p2", bf + "_boxes.txt"), "w") as f:
+            f.write("\n".join(lines) + "\n")
         print(f"{bf}: {len(pockets)} pockets (running {n_pock})", file=sys.stderr)
     print(f"total pockets: {n_pock}", file=sys.stderr)
 
@@ -220,10 +222,11 @@ def finger():
     best = _load_best(2)
     recfiles = sorted(f for f in os.listdir(os.path.join(OUT, "batches"))
                       if f.endswith(".txt"))
-    pids, fp = [], []
-    for bf in recfiles:
-        recs = [l.strip() for l in open(os.path.join(OUT, "batches", bf)) if l.strip()]
-        for ri, rec in enumerate(recs):
+    pids, fp, recs = [], [], []
+    for bff in recfiles:
+        bf = bff[:-4]
+        recs_ = [l.strip() for l in open(os.path.join(OUT, "batches", bff)) if l.strip()]
+        for ri, rec in enumerate(recs_):
             if (bf, ri) not in best:
                 continue
             scores = best[(bf, ri)]
@@ -231,6 +234,7 @@ def finger():
                 continue
             row = np.array([scores.get(l, (np.nan,))[0] for l in LIB_MOLS])
             pids.append(os.path.basename(rec)[:-4])
+            recs.append(rec)
             fp.append(row)
     F = np.array(fp)
     # center per molecule
@@ -238,7 +242,8 @@ def finger():
     os.makedirs(OUT, exist_ok=True)
     np.save(os.path.join(OUT, "fingerprints.npy"), F)
     np.savez(os.path.join(OUT, "names.npz"),
-             pockets=np.array(pids), mols=np.array(LIB_MOLS))
+             pockets=np.array(pids), mols=np.array(LIB_MOLS),
+             recs=np.array(recs))
     print(f"fingerprints: {F.shape}", file=sys.stderr)
 
 

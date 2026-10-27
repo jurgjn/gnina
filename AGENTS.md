@@ -59,29 +59,41 @@ human proteome.
 1. **Classic scoring only** — vina pair potential; GNINA `--score none` ≡ smina.
 2. **2-phase whole-protein pocket detection** — fast whole-protein dock → cluster best
    poses (centroid RMSD) → per-pocket boxes → full-exhaustiveness re-dock.
-3. **Pocket fingerprint (PocketVec)** — dock probes → best scores → ranks (1=best);
-   favorable top-3 ranks amplified (→ N+1, N+2, N+3); cosine similarity. Library
-   iteration: select 128 by max (variance-of-normalized-rank + entropy of rank
-   distribution); re-select worst 20% vs distinguishability objective, 3 iterations.
+3. **Pocket fingerprint (PocketVec-style)** — dock probes → best scores → ranks
+   (1=best); **center ranks per molecule across pockets** (raw rank vectors are all
+   near-parallel permutations — centered cosine ≈ Pearson correlation, far more
+   discriminative: mean nearest-pocket cosine 0.81 raw → 0.25 centered). Library
+   iteration: select 128 by (variance-of-normalized-rank + rank-entropy); re-select
+   worst 20% vs distinguishability objective, 3–5 iterations.
 4. **Human proteome** — all AF human monomers → pocket detection → fingerprints.
 5. **Web app** — browse pockets, similarity search, 3D (protein + top probes).
 
-## Status (Oct 27, ~17:00)
+## Status (Oct 27, ~17:20)
 
 - [x] gpdock engine: built, multi-receptor + multi-box, `#TYPES` ligand typing,
-      refinement phase. 1DM2 ligand top-1 = 0.7 Å (redocking sanity).
-- [x] Cross-dock benchmark data extracted; 2-phase driver + eval (bench_cd.py).
-- [x] Probe library v0 (1000, from 3485 unique CD+PDBbind ligands 200–450 Da).
-- [x] AFDB human v6 tarball identified + downloading (5.18 GB).
-- [x] Web app skeleton (server + 3Dmol viewer + similarity list).
-- [ ] **RUNNING** full cross-dock benchmark (92 pockets, p1 1000×16, p2 2000×16)
-      → `results/cd/` (~100 min). Early: Top1 ~1–6%, pocket recall ~20% (classic
-      scoring whole-protein weakness — expected; see analysis).
-- [ ] **RUNNING** probe docking (92 rep. pockets × 1000 probes, GPU 3) + library
-      iteration → 128 subset → `results/fp/`.
-- [ ] AFDB: extract F1 pdb.gz monomers (~17k), pocket detection at scale.
-- [ ] Web app: wire to real fingerprint data; 2D embedding (MDS endpoint exists).
-- [ ] gpdock vs smina classic validation on redocking subset.
+      refinement phase, O(n) parse (72k-atom PDBs < 1 s). 1DM2 ligand top-1 = 0.7 Å.
+      Scoring verified verbatim vs `gninasrc/lib/builtinscoring.cpp` ("vina" term set =
+      GNINA's classic default).
+- [x] **Cross-dock benchmark DONE** (92 pockets, 7970 pairs, p1 1000×16, p2 2000×16):
+      Top1 raw<2 Å **5.8%**, Top9 **7.7%**, best-aligned<2 Å **84.6%**, per-pocket
+      Top1 70.7%, pocket recall@5 Å 22.9%. See `results/cd/SUMMARY.md` — engine finds
+      the binding mode but classic scoring + whole-protein phase-1 mislocalize the
+      pocket in most cases (GNINA 1.0: Top1 ~16–20% with their scoring).
+- [x] Probe library v0 (1000) → **128 selected** by iteration (maximize pocket
+      distinguishability, centered-rank cosine). `results/fp/` (selected.json,
+      fingerprints). Sanity: ABL1→mTOR, DEF↔SAHH (PLP enzymes), ADA17↔TRYB1 (hydrolases).
+- [x] Web app: running on **port 8737** (pocket list, 3Dmol viewer protein+probes,
+      similarity table, MDS/PCA scatter, top-probe scores). Server: `web/app.py`.
+- [x] AFDB human v6: **20,550 monomers extracted** (`data/afdb/recs/`), probe
+      library **128** (`data/lib/v128/`).
+- [x] **AF p1 DONE**: 128 probes × 20,550 monomers, whole-protein, 1000×8 (~30 min
+      on 2 GPUs) → `results/af/p1/`.
+- [ ] AF: detect (running) → p2 redock (2000×16, ~30 min 2-GPU) → fingerprints →
+      web app on AF data (~20k pockets).
+- [ ] Benchmark v2: probe-based phase-1 pocket detection (`dockfp/bench_cd_v2.py`)
+      — expected to lift Top1 (5.8% v1) toward the GNINA-1.0 whole-protein numbers.
+- [ ] gpdock vs smina binary validation (smina source unavailable; scoring verified
+      by source port instead).
 
 ## Gotchas
 

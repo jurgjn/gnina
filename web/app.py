@@ -24,6 +24,19 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import numpy as np
 
 
+def project(FP):
+    """2D embedding: classical MDS on cosine distance (small) or PCA (large)."""
+    n = FP.shape[0]
+    if n <= 1500:
+        D = 1 - (FP / (np.linalg.norm(FP, axis=1, keepdims=True) + 1e-9)
+                 @ (FP / (np.linalg.norm(FP, axis=1, keepdims=True) + 1e-9)).T)
+        return mdsl(D.astype(float))
+    # PCA on the fingerprint matrix (fast for large n)
+    X = FP - FP.mean(0, keepdims=True)
+    U, S, Vt = np.linalg.svd(X, full_matrices=False)
+    return (U[:, :2] * S[:2]) / (np.linalg.norm(U[:, :2] * S[:2]) + 1e-9)
+
+
 def mdsl(X, n=2, max_iter=60):
     """Classical MDS (on squared distances), small data only."""
     npts = X.shape[0]
@@ -32,7 +45,6 @@ def mdsl(X, n=2, max_iter=60):
     B = -0.5 * J @ D2 @ J
     w, V = np.linalg.eigh(B)
     idx = np.argsort(-w)
-    scale = np.sqrt(w[idx[0]] + 1e-12)
     return V[:, idx[:n]] * np.sqrt(np.maximum(w[idx[:n]], 0))
 
 
@@ -51,19 +63,21 @@ class App:
             names = np.load(os.path.join(fp_dir, "names.npz"))
             self.pockets = list(names["pockets"])
             self.mols = list(names["mols"])
+            if "recs" in names.files:
+                self.rec_paths = [str(r) for r in names["recs"]]
             c = os.path.join(fp_dir, "fingerprints_centered.npy")
             self.FP = np.load(c) if os.path.exists(c) else \
                 np.load(os.path.join(fp_dir, "fingerprints.npy"))
             F = self.FP / (np.linalg.norm(self.FP, axis=1, keepdims=True) + 1e-9)
-            D = 1 - F @ F.T
-            self.proj = mdsl(D.astype(float))
+            self.proj = project(self.FP)
             d = os.path.join(fp_dir, "probe_dock", "results.tsv")
             if os.path.exists(d):
                 self.pose_tsv = d
 
     def similar(self, i, k=20):
         F = self.FP / (np.linalg.norm(self.FP, axis=1, keepdims=True) + 1e-9)
-        s = F[i] @ F.T
+        s = F @ F[i] if len(F) > 1500 else (F @ F.T)[i]
+        s = s.copy()
         s[i] = -2
         top = np.argsort(-s)[:k]
         return [(int(j), float(s[j])) for j in top]
