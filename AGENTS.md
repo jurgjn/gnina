@@ -88,6 +88,10 @@ human proteome.
       scatter, top-probe scores. Server: `web/app.py`.
       Restart: `python3 web/app.py --root . --fp <fp_dir> --port <p>` (for the
       92-set add `--recs results/fp_recs.txt`).
+      **3D display confirmed working (ui v18, Oct 27)**: cartoon + pocket as
+      element-colored probe spheres (chain Q), camera zooms to the pocket.
+      If the view ever blanks: click "reset 3D". The pocket is the sphere
+      cluster (top-8 probe poses), not a computed cavity surface.
 - [x] AFDB human v6: **20,550 monomers extracted** (`data/afdb/recs/`), probe
       library **128** (`data/lib/v128/`).
 - [x] **AF p1 DONE**: 128 probes × 20,550 monomers, whole-protein, 1000×8 (~30 min
@@ -123,5 +127,20 @@ human proteome.
 - ChEMBL/PubChem SMILES endpoints are broken/changed (Oct 2026) — library built from
   benchmark pools instead.
 - 3Dmol.js vendored locally (browsers may lack internet).
+- **3Dmol build quirks** (the vendored `web/3Dmol.min.js`; see `web/test2.html`
+  for the A/B/C/D isolation harness that found them):
+  - Two SEPARATE models in one viewer do not render (each alone is fine,
+    together = blank canvas, no JS error). Workaround used in `web/index.html`:
+    concatenate protein+probe text into ONE model; style `{not:{chain:'Q'}}`
+    cartoon, `{chain:'Q'}` spheres.
+  - Surface representation on that merged model also crashes rendering →
+    surfaces auto-disable while probes are on.
+  - Generated PDBs MUST use strict 80-column layout (serial 6-11, name 13-16,
+    resn 18-20, chain 22, resSeq 23-26, xyz 31-54, element 77-78) — the
+    fixed-column parser silently yields 0 atoms otherwise.
+  - Renders race with representation building: keep the generation guard +
+    150 ms toggle debounce + 700 ms settle re-render in `loadPocket`.
+  - Server must send HTTP/1.1 + `Cache-Control: no-store`, or browsers retain
+    stale UI versions for days.
 - Commit trailer: `Co-authored-by: <PI_MODEL> <pi-agent@<PI_PROVIDER>.invalid>`
   (check env vars before each commit).
