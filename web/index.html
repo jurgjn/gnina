@@ -29,7 +29,8 @@
   #simlist .item { padding:6px 12px; }
   #simlist .bar { height:4px; background:#0d1117; border-radius:2px; margin-top:3px; }
   #simlist .bar i { display:block; height:100%; background:var(--ac); border-radius:2px; }
-  .btns { display:flex; gap:6px; padding:8px 12px; flex-wrap:wrap; }
+  .btns { display:flex; gap:6px; padding:8px 12px; flex-wrap:wrap;
+  position:absolute; bottom:10px; left:10px; z-index:3; }
   .btns button { background:#20304a; border:1px solid var(--edge); color:var(--tx);
     padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
   .btns button.on { background:var(--ac); color:#04101f; border-color:var(--ac); }
@@ -45,7 +46,7 @@
 </head>
 <body>
 <header>
-  <h1>in-vina-veritas · pocket browser</h1>
+  <h1>in-vina-veritas · pocket browser <span style="color:var(--ac);font-size:11px">ui v18</span></h1>
   <span class="sub" id="status">loading…</span>
 </header>
 <div id="layout">
@@ -58,7 +59,9 @@
     <div class="btns">
       <button id="bprot" class="on">protein</button>
       <button id="bprobes" class="on">probes</button>
-      <button id="bsurf" class="on">surfaces</button>
+      <button id="bsurf">surfaces</button>
+      <button id="breset" title="rebuild the 3D viewer (use if the view goes blank)">reset 3D</button>
+      <button id="bstyle" title="cycle the probe rendering style">probe: sphere/el</button>
     </div>
   </div>
   <div class="col">
@@ -78,7 +81,26 @@ window.onerror=function(m,s,l,c,e){
 };
 let POCKETS=[], RECS=[], PROJ=null, SEL=null, SIM=[];
 const viewerEl = document.getElementById('viewer');
-const v = $3Dmol.createViewer(viewerEl, {backgroundColor:'#10141a'});
+function mkViewer(){
+  viewerEl.innerHTML = '';
+  const w = $3Dmol.createViewer(viewerEl, {backgroundColor:'#10141a'});
+  try{
+    const cv = viewerEl.querySelector('canvas');
+    if(cv) cv.addEventListener('webglcontextlost', (e)=>{
+      e.preventDefault();
+      document.getElementById('status').textContent = 'WebGL context lost — click "reset 3D"';
+    });
+  }catch(e){}
+  return w;
+}
+let v = mkViewer();
+let probeStyleIdx = 0;
+const probeStyles = [
+  {name:'sphere/el',  s:()=>({sphere:{scale:0.7, colorStyle:'element'}})},
+  {name:'sphere/red', s:()=>({sphere:{scale:0.7, color:0xff3030}})},
+  {name:'stick/el',   s:()=>({stick:{radius:0.12, colorStyle:'element'}})},
+  {name:'stick/red',  s:()=>({stick:{radius:0.12, color:0xff3030}})},
+];
 function fit(){ try{ v.resize(); }catch(e){} }
 window.addEventListener('resize', fit);
 
@@ -125,37 +147,69 @@ function select(i){
   SEL=i; renderList(); drawScatter(); loadPocket(i);
 }
 
+let GEN = 0;
 async function loadPocket(i){
+  const gen = ++GEN;
   const p = POCKETS[i];
   v.clear();
-  let nprot=0, nprobes=0;
+  let nprot=0, nprobes=0, err=null, protTxt=0, posesTxt=0, selOK=null;
+  const showProt = document.getElementById('bprot').classList.contains('on');
+  const showProbes = document.getElementById('bprobes').classList.contains('on');
+  const showSurf = document.getElementById('bsurf').classList.contains('on');
   const rec = RECS[i];
-  if(rec){
+  // surface and probes cannot be shown together: the surface generator on a
+  // merged model containing the probe residues crashes this 3Dmol build
+  const surf = showSurf && !(showProbes);
+  let protText = '', posesText = '';
+  if(rec && showProt){
     try{
-      const pdb = await t('/pdb?path='+encodeURIComponent(rec));
-      if(!pdb.startsWith('HEADER') && !pdb.startsWith('ATOM')) throw new Error('no PDB: '+pdb.slice(0,60));
-      v.addModel(pdb, 'pdb');
-      v.addStyle({},{cartoon:{colorStyle:'chain'}});
-      if(document.getElementById('bsurf').classList.contains('on'))
-        try{ v.addStyle({},{representation:'surface', opacity:0.35, colorStyle:'chain'}); }
-        catch(e){ console.warn('surface failed', e); }
-      nprot = v.numAtoms();
+      protText = await t('/pdb?path='+encodeURIComponent(rec));
+      if(gen !== GEN) return; // a newer load superseded this one
+      if(!protText.startsWith('HEADER') && !protText.startsWith('ATOM')) throw new Error('no PDB: '+protText.slice(0,60));
+      protTxt = protText.length;
+      nprot = (protText.match(/^ATOM/mg)||[]).length;
     }catch(e){
-      document.getElementById('status').textContent = 'protein load failed: '+e.message;
+      err = 'protein: '+e.message;
       console.error(e);
+      protText = '';
     }
   }
   try{
-    const poses = await t('/api/poses/'+i+'?top=8');
-    if(poses.trim()){
-      v.addModel(poses, 'pdb');
-      v.addStyle({},{sphere:{scale:0.28, colorStyle:'element'}});
-      nprobes = v.numAtoms() - nprot;
-    }
-  }catch(e){ console.error(e); }
-  try{ v.zoomTo(); }catch(e){ console.warn(e); }
-  fit(); setTimeout(fit, 200); setTimeout(()=>{ try{ v.zoomTo(); v.render(); }catch(e){} }, 600);
-  const sim = await j('/api/similar/'+i+'?k=20'); SIM=sim;
+    posesText = (await t('/api/poses/'+i+'?top=8')).trim();
+    if(gen !== GEN) return;
+    posesTxt = posesText.length;
+    nprobes = posesText ? (posesText.match(/^ATOM/mg)||[]).length : 0;
+  }catch(e){ err = (err ? err+' | ' : '') + 'probes: '+e.message; console.error(e); posesText=''; }
+  // ONE merged model: protein chains + probe poses (chain Q). Two separate
+  // models in one viewer fails to render in this 3Dmol build (see test2.html).
+  const pd1 = protText.replace(/\nEND[\s\S]*$/, '');
+  const merged = (showProt ? pd1 : '') + (showProbes && posesText ? '\n' + posesText : '');
+  if(merged.trim()){
+    try{
+      const m = v.addModel(merged, 'pdb');
+      if(showProt) v.addStyle({not:{chain:'Q'}},{cartoon:{colorStyle:'chain'}});
+      if(showProt && surf)
+        try{ v.addStyle({not:{chain:'Q'}},{representation:'surface', opacity:0.35, colorStyle:'chain'}); }
+        catch(e){ console.warn('surface failed', e); }
+      if(showProbes && posesText) v.addStyle({chain:'Q'}, probeStyles[probeStyleIdx].s());
+      try{ selOK = v.getAtomsFromSel({chain:'Q'}).filter(Boolean).length; }catch(e){ selOK = 'err'; }
+    }catch(e){ err = (err ? err+' | ' : '') + 'model: '+e.message; console.error(e); }
+  }
+  const doZoom = () => {
+    if(gen !== GEN) return;
+    try{
+      if(showProbes && nprobes > 0) v.zoomTo({chain:'Q'});
+      else v.zoomTo();
+      v.render();
+    }catch(e){}
+  };
+  doZoom();
+  fit();
+  // settle: re-zoom + re-render once representations have finished building
+  setTimeout(()=>{ if(gen === GEN){ fit(); doZoom(); } }, 700);
+  const sim = await j('/api/similar/'+i+'?k=20');
+  if(gen !== GEN) return;
+  SIM=sim;
   const sl = document.getElementById('simlist'); sl.innerHTML='';
   sim.forEach(([j_,s])=>{
     const d=document.createElement('div'); d.className='item';
@@ -165,6 +219,7 @@ async function loadPocket(i){
     sl.appendChild(d);
   });
   const tp = await j('/api/topprobes/'+i+'?top=10');
+  if(gen !== GEN) return;
   const bars = document.getElementById('probebars'); bars.innerHTML='';
   const smin = Math.min(...tp.map(t=>t[1])), smax = Math.max(...tp.map(t=>t[1]));
   tp.forEach(([m,s])=>{
@@ -174,13 +229,26 @@ async function loadPocket(i){
     bars.appendChild(row);
   });
   document.getElementById('status').textContent =
-    `pocket ${p} · ${sim.length} similar shown · 3D: ${nprot} protein atoms, ${nprobes} probe atoms`;
+    `pocket ${p} · ${sim.length} similar · prot:${nprot}a (${(protTxt/1024).toFixed(0)}KB) · probes:${nprobes}a (${(posesTxt/1024).toFixed(0)}KB) · sel:${selOK} · btns: P${showProt?1:0}p${showProbes?1:0}s${surf?1:0}${(showSurf && showProbes) ? ' (surf off w/ probes)' : ''}`
+    + (err ? ' · ERROR '+err : '');
 }
 
-document.getElementById('bprot').onclick=function(){ this.classList.toggle('on'); };
-document.getElementById('bprobes').onclick=function(){ this.classList.toggle('on'); };
+let LOAD_T = null;
+function requestLoad(){ clearTimeout(LOAD_T); LOAD_T = setTimeout(()=>{ if(SEL!==null) loadPocket(SEL); }, 150); }
+document.getElementById('bprot').onclick=function(){ this.classList.toggle('on'); requestLoad(); };
+document.getElementById('bprobes').onclick=function(){ this.classList.toggle('on'); requestLoad(); };
 document.getElementById('bsurf').onclick=function(){
   this.classList.toggle('on');
+  requestLoad();
+};
+document.getElementById('breset').onclick=function(){
+  v = mkViewer();
+  if(SEL!==null) loadPocket(SEL); else v.render();
+};
+document.getElementById('bstyle').onclick=function(){
+  probeStyleIdx = (probeStyleIdx+1) % probeStyles.length;
+  this.textContent = 'probe: ' + probeStyles[probeStyleIdx].name;
+  requestLoad();
 };
 
 (async function init(){
