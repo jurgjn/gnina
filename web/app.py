@@ -160,8 +160,8 @@ class App:
             ca = c @ R.T + np.array([cx, cy, cz])
             for j, (xyz, e, nm) in enumerate(zip(ca, el, nms)):
                 out.append(
-                    f"ATOM  {j+1:>5d} {nm[:4]:<4s} {l[:4]:>2s} {l[:3]:>3s} A    "
-                    f"{xyz[0]:8.3f}{xyz[1]:8.3f}{xyz[2]:8.3f}  1.00  0.00           {e:>2s}\n")
+                    f"ATOM  {j+1:>5d} {nm[:4]:<4s}{l[:3]:<3s} A{j+1:>4d}    "
+                    f"{xyz[0]:8.3f}{xyz[1]:8.3f}{xyz[2]:8.3f}  1.00  0.00          {e:>2s}  \n")
             out.append("TER\n")
         return "".join(out)
 

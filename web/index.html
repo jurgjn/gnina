@@ -71,10 +71,15 @@
   </div>
 </div>
 <script>
+window.onerror=function(m,s,l,c,e){
+  const st=document.getElementById('status');
+  if(st) st.textContent='JS ERROR: '+m+' (line '+l+')';
+  return false;
+};
 let POCKETS=[], RECS=[], PROJ=null, SEL=null, SIM=[];
 const viewerEl = document.getElementById('viewer');
 const v = $3Dmol.createViewer(viewerEl, {backgroundColor:'#10141a'});
-function fit(){ v.resize(); }
+function fit(){ try{ v.resize(); }catch(e){} }
 window.addEventListener('resize', fit);
 
 async function j(u){ return (await fetch(u)).json(); }
@@ -123,18 +128,33 @@ function select(i){
 async function loadPocket(i){
   const p = POCKETS[i];
   v.clear();
+  let nprot=0, nprobes=0;
   const rec = RECS[i];
   if(rec){
-    const pdb = await t('/pdb?path='+encodeURIComponent(rec));
-    v.addModel(pdb, 'pdb');
-    v.addStyle({},{cartoon:{colorStyle:'chain'}});
-    if(document.getElementById('bsurf').classList.contains('on'))
-      v.addStyle({},{representation:'surface', opacity:0.35, colorStyle:'chain'});
+    try{
+      const pdb = await t('/pdb?path='+encodeURIComponent(rec));
+      if(!pdb.startsWith('HEADER') && !pdb.startsWith('ATOM')) throw new Error('no PDB: '+pdb.slice(0,60));
+      v.addModel(pdb, 'pdb');
+      v.addStyle({},{cartoon:{colorStyle:'chain'}});
+      if(document.getElementById('bsurf').classList.contains('on'))
+        try{ v.addStyle({},{representation:'surface', opacity:0.35, colorStyle:'chain'}); }
+        catch(e){ console.warn('surface failed', e); }
+      nprot = v.numAtoms();
+    }catch(e){
+      document.getElementById('status').textContent = 'protein load failed: '+e.message;
+      console.error(e);
+    }
   }
-  const poses = await t('/api/poses/'+i+'?top=8');
-  v.addModel(poses, 'pdb');
-  v.addStyle({},{sphere:{scale:0.28, colorStyle:'element'}});
-  v.zoomTo(); fit();
+  try{
+    const poses = await t('/api/poses/'+i+'?top=8');
+    if(poses.trim()){
+      v.addModel(poses, 'pdb');
+      v.addStyle({},{sphere:{scale:0.28, colorStyle:'element'}});
+      nprobes = v.numAtoms() - nprot;
+    }
+  }catch(e){ console.error(e); }
+  try{ v.zoomTo(); }catch(e){ console.warn(e); }
+  fit(); setTimeout(fit, 200); setTimeout(()=>{ try{ v.zoomTo(); v.render(); }catch(e){} }, 600);
   const sim = await j('/api/similar/'+i+'?k=20'); SIM=sim;
   const sl = document.getElementById('simlist'); sl.innerHTML='';
   sim.forEach(([j_,s])=>{
@@ -154,7 +174,7 @@ async function loadPocket(i){
     bars.appendChild(row);
   });
   document.getElementById('status').textContent =
-    `pocket ${p} · ${sim.length} similar shown`;
+    `pocket ${p} · ${sim.length} similar shown · 3D: ${nprot} protein atoms, ${nprobes} probe atoms`;
 }
 
 document.getElementById('bprot').onclick=function(){ this.classList.toggle('on'); };
@@ -164,6 +184,13 @@ document.getElementById('bsurf').onclick=function(){
 };
 
 (async function init(){
+  // WebGL check
+  try{
+    const cv=document.createElement('canvas');
+    const gl=cv.getContext('webgl')||cv.getContext('experimental-webgl');
+    if(!gl) document.getElementById('status').textContent
+      = 'WebGL not available in this browser - 3D view will be blank';
+  }catch(e){}
   const pk = await j('/api/pockets');
   POCKETS=pk.pockets; RECS=pk.recs||[];
   const pr = await j('/api/proj'); PROJ=pr.proj;
