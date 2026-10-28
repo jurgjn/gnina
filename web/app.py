@@ -159,10 +159,19 @@ class App:
                 [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)]])
             ca = c @ R.T + np.array([cx, cy, cz])
             for j, (xyz, e, nm) in enumerate(zip(ca, el, nms)):
+                nm4 = nm[:4]
+                # PDB naming convention: 1-2 char element names start at col 14,
+                # longer names at col 13
+                name4 = nm4.ljust(4) if len(nm4) >= 3 else (" " + nm4).ljust(4)
+                # strict PDB columns: serial 6-11, name 13-16, resn 18-20,
+                # chain 22, resi 23-26, x 31-38, y 39-46, z 47-54, occ 55-60,
+                # tempf 61-66, element 77-78
                 out.append(
-                    f"ATOM  {j+1:>5d} {nm[:4]:<4s}{l[:3]:<3s} A{j+1:>4d}    "
-                    f"{xyz[0]:8.3f}{xyz[1]:8.3f}{xyz[2]:8.3f}  1.00  0.00          {e:>2s}  \n")
-            out.append("TER\n")
+                    "ATOM" + " " + f"{j+1:6d}" + " " + name4 + " "
+                    + f"{l[:3]:3s}" + " Q" + f"{j+1:4d}" + "    "
+                    + f"{xyz[0]:8.3f}{xyz[1]:8.3f}{xyz[2]:8.3f}"
+                    + " " + f"{1.00:6.2f}{0.00:6.2f}" + "          "
+                    + f"{e:2s}" + "  \n")
         return "".join(out)
 
     def _pose_file(self, i):
@@ -197,6 +206,8 @@ app = None
 
 def make_handler(app):
     class H(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
         def log_message(self, *a):
             pass
 
@@ -206,6 +217,9 @@ def make_handler(app):
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
             self.end_headers()
             self.wfile.write(body)
 
@@ -216,6 +230,9 @@ def make_handler(app):
             try:
                 if p == "/":
                     self._send(200, open(os.path.join(app.web, "index.html")).read(),
+                               "text/html")
+                elif p == "/test2.html":
+                    self._send(200, open(os.path.join(app.web, "test2.html")).read(),
                                "text/html")
                 elif p == "/3Dmol.min.js":
                     self._send(200, open(os.path.join(app.web, "3Dmol.min.js"), "rb").read(),

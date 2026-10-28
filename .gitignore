@@ -11,3 +11,4 @@ deps/prefix/
 gpdock/gpdock
 test/dbg_score
 __pycache__/
+web/__pycache__/
