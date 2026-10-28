@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>3Dmol render isolation test</title>
+<script src="/3Dmol.min.js"></script>
+<style>
+  body { background:#111; color:#eee; font-family:monospace; }
+  #v { width:800px; height:600px; border:1px solid #444; position:relative; }
+  button { margin:4px; font-size:14px; }
+  button:disabled { opacity:0.35; }
+  #msg { font-size:16px; padding:8px; position:relative; z-index:10; background:#111; }
+</style>
+</head>
+<body>
+<h2>3Dmol render isolation test (ui)</h2>
+<div id="v"></div>
+<button onclick="run('A')" disabled>A: protein only</button>
+<button onclick="run('B')" disabled>B: protein x2</button>
+<button onclick="run('C')" disabled>C: probes only</button>
+<button onclick="run('D')" disabled>D: merged cartoon+spheres</button>
+<div id="msg">loading…</div>
+<script>
+const v = $3Dmol.createViewer(document.getElementById('v'), {backgroundColor:'#10141a'});
+const msg = m => document.getElementById('msg').textContent = m;
+let prot = '', poses = '';
+(async () => {
+  const pk = await (await fetch('/api/pockets')).json();
+  prot = await (await fetch('/pdb?path=' + encodeURIComponent(pk.recs[0]))).text();
+  prot = prot.replace(/\nEND[\s\S]*$/, '');
+  poses = await (await fetch('/api/poses/0?top=8')).text();
+  document.querySelectorAll('button').forEach(b => b.disabled = false);
+  msg(`LOADED: protein ${(prot.match(/^ATOM/mg)||[]).length} atoms, probes ${(poses.match(/^ATOM/mg)||[]).length} atoms. Buttons are enabled now — click A–D.`);
+})();
+function run(which) {
+  if (!prot) { msg('STILL LOADING — wait for the buttons to become enabled.'); return; }
+  let out = '';
+  try {
+    v.clear();
+    if (which === 'A') {
+      const m = v.addModel(prot, 'pdb');
+      v.addStyle({model: m}, {cartoon: {colorStyle: 'chain'}});
+      v.zoomTo();
+      msg('A: protein only — expecting a cartoon. (control)');
+    } else if (which === 'B') {
+      const m1 = v.addModel(prot, 'pdb');
+      v.addStyle({model: m1}, {cartoon: {colorStyle: 'chain'}});
+      const m2 = v.addModel(prot, 'pdb');
+      v.addStyle({model: m2}, {cartoon: {color: 0xff00ff}});
+      v.zoomTo();
+      msg('B: two protein models (one magenta) — if the view is BLANK, having two models in one viewer breaks this 3Dmol build.');
+    } else if (which === 'C') {
+      const m = v.addModel(poses, 'pdb');
+      v.addStyle({chain: 'Q'}, {sphere: {scale: 0.8, colorStyle: 'element'}});
+      v.zoomTo({chain: 'Q'});
+      msg('C: probes only — expecting ~8 overlapping colored molecules near the center. If blank, the probe model cannot render in your browser at all.');
+    } else {
+      const m = v.addModel(prot + poses, 'pdb');
+      v.addStyle({not: {chain: 'Q'}}, {cartoon: {colorStyle: 'chain'}});
+      v.addStyle({chain: 'Q'}, {sphere: {scale: 0.8, colorStyle: 'element'}});
+      v.zoomTo({chain: 'Q'}, 300);
+      msg('D: single merged model — cartoon for the protein + spheres for the probes (chain Q). If D works, I will merge the probes into the protein model in the app.');
+    }
+  } catch (e) {
+    out = 'EXCEPTION: ' + e.message;
+  }
+  try { v.resize(); } catch (e) {}
+  try { v.render(); } catch (e) {}
+  const cv = document.querySelector('#v canvas');
+  msg(out + (cv ? `  [canvas ${cv.width}x${cv.height}]` : '  [no canvas element!]'));
+}
+</script>
+</body>
+</html>
